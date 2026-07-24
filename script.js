@@ -37,6 +37,8 @@ const translations = {
     categoryContainers: "کانتینرها",
     categoryPackages: "پکیج‌ها",
     allStatuses: "همه وضعیت‌ها",
+    iranianMirrors: "ایرانی",
+    internationalMirrors: "بین‌المللی",
     onlineOnly: "فقط آنلاین",
     offlineOnly: "فقط آفلاین",
     checkingOnly: "در حال بررسی",
@@ -50,7 +52,6 @@ const translations = {
     supportText:
       "اگر میراوا برای شما مفید بوده، می‌توانید در نگهداری و توسعه آن حمایت کنید.",
     payBtn: "پرداخت ریالی",
-    payPingBtn: "پرداخت با پی‌پینگ",
     support: "حمایت",
     community: "جامعه",
     contributors: "مشارکت‌کننده‌ها",
@@ -95,6 +96,7 @@ const translations = {
     viewDetails: "مشاهده جزئیات",
     radarTitle: "رادار زنده میرورها",
     radarSubtitle: "پایش مستمر توسط Uptime Kuma — داده‌های واقعی سمت سرور",
+    openFullRadar: "مشاهده رادار کامل",
   },
   en: {
     documentTitle: "Mirava — Free Mirrors",
@@ -125,6 +127,8 @@ const translations = {
     categoryContainers: "Containers",
     categoryPackages: "Packages",
     allStatuses: "All statuses",
+    iranianMirrors: "Iranian",
+    internationalMirrors: "International",
     onlineOnly: "Online only",
     offlineOnly: "Offline only",
     checkingOnly: "Checking",
@@ -138,7 +142,6 @@ const translations = {
     supportText:
       "If Mirava has been useful to you, you can support its maintenance and development.",
     payBtn: "Rial Donation",
-    payPingBtn: "PayPing Donation",
     support: "Support",
     community: "Community",
     contributors: "Contributors",
@@ -183,6 +186,7 @@ const translations = {
     viewDetails: "View details",
     radarTitle: "Live Mirror Radar",
     radarSubtitle: "Continuously monitored by Uptime Kuma — real server-side data",
+    openFullRadar: "Open full radar",
   },
 };
 
@@ -276,7 +280,14 @@ function normalizePackage(value) {
 function mirrorHasPackage(mirror, packageName) {
   if (packageName === "all") return true;
   const target = normalizePackage(packageName);
-  return mirror.packages.some((pkg) => normalizePackage(pkg).includes(target));
+  const packageNames = [
+    ...mirror.packages,
+    ...(mirror.packageUrls || []).map((pkg) => pkg.name),
+  ];
+  return packageNames.some((pkg) => {
+    const normalized = normalizePackage(pkg);
+    return normalized.includes(target) || target.includes(normalized);
+  });
 }
 
 function mirrorMatchesCategory(mirror, category) {
@@ -324,7 +335,12 @@ function getFilteredMirrors() {
   const packageName = packageFilter.value;
 
   return allMirrors.filter((mirror) => {
-    const statusMatches = status === "all" || getStatus(mirror.url) === status;
+    const sourceType = resolvedSourceType(mirror);
+    const statusMatches =
+      status === "all" ||
+      (status === "iranian" && sourceType === "mirror-ir") ||
+      (status === "international" && sourceType === "mirror-intl") ||
+      getStatus(mirror.url) === status;
     const categoryMatches = mirrorMatchesCategory(mirror, activeCategory);
     const packageMatches = mirrorHasPackage(mirror, packageName);
     const queryMatches =
@@ -373,10 +389,10 @@ function renderCards() {
     const packageBadges = (mirror.packageUrls && mirror.packageUrls.length
       ? mirror.packageUrls.slice(0, 8).map((pkg) => {
           const s = getStatus(pkg.url);
-          return `<span class="package pkg-${s}" title="${pkg.url}">${pkg.name}</span>`;
+          return `<button type="button" class="package pkg-${s}" data-package="${escapeAttr(pkg.name)}" title="${pkg.url}">${pkg.name}</button>`;
         })
       : mirror.packages.slice(0, 8).map((pkg) =>
-          `<span class="package pkg-${status}" title="${mirror.url}">${pkg}</span>`,
+          `<button type="button" class="package pkg-${status}" data-package="${escapeAttr(pkg)}" title="${mirror.url}">${pkg}</button>`,
         )
     ).join("");
 
@@ -384,8 +400,8 @@ function renderCards() {
       <div class="mirror-card-head">
         <h3>${mirror.name}</h3>
         <div class="card-head-badges">
-          <span class="source-tag source-${sourceType}">${sourceTypeLabel(sourceType)}</span>
-          <span class="status-pill ${status}">${statusLabel(status)}</span>
+          <button type="button" class="source-tag source-${sourceType}" data-source="${sourceType}">${sourceTypeLabel(sourceType)}</button>
+          <button type="button" class="status-pill ${status}" data-status="${status}">${statusLabel(status)}</button>
         </div>
       </div>
       <p class="desc">${mirror.description}</p>
@@ -407,11 +423,39 @@ function renderCards() {
       copyMirrorUrl(mirror.url);
     });
 
+    card.querySelectorAll(".package").forEach((tag) => {
+      tag.addEventListener("click", (event) => {
+        event.stopPropagation();
+        packageFilter.value = tag.dataset.package;
+        renderAll();
+        document.querySelector(".controls-section")?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      });
+    });
+
+    card.querySelector(".source-tag")?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      statusFilter.value =
+        sourceType === "mirror-intl" ? "international" : "iranian";
+      renderAll();
+    });
+
+    card.querySelector(".status-pill")?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      statusFilter.value = status;
+      renderAll();
+    });
+
     card.addEventListener("click", () => {
       window.location.href = `provider.html?url=${encodeURIComponent(mirror.url)}`;
     });
     card.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") {
+      if (
+        event.target === card &&
+        (event.key === "Enter" || event.key === " ")
+      ) {
         event.preventDefault();
         window.location.href = `provider.html?url=${encodeURIComponent(mirror.url)}`;
       }
@@ -424,7 +468,12 @@ function renderCards() {
 function renderPackageOptions() {
   const selected = packageFilter.value || "all";
   const packageNames = [
-    ...new Set(allMirrors.flatMap((mirror) => mirror.packages)),
+    ...new Set(
+      allMirrors.flatMap((mirror) => [
+        ...mirror.packages,
+        ...(mirror.packageUrls || []).map((pkg) => pkg.name),
+      ]),
+    ),
   ].sort((a, b) => a.localeCompare(b));
 
   packageFilter.innerHTML = `<option value="all">${t("allPackages")}</option>`;
@@ -1043,10 +1092,6 @@ function applyLanguage() {
   });
 
   const currentStatus = statusFilter.value;
-  statusFilter.options[0].textContent = t("allStatuses");
-  statusFilter.options[1].textContent = t("onlineOnly");
-  statusFilter.options[2].textContent = t("offlineOnly");
-  statusFilter.options[3].textContent = t("checkingOnly");
   statusFilter.value = currentStatus;
 
   renderPackageOptions();
