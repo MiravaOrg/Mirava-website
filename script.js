@@ -955,7 +955,7 @@ function renderStatusGrid() {
     if (x + 240 > rect.width) x = e.clientX - rect.left - 240;
     if (y < 4) y = e.clientY - rect.top + 20;
     tip.style.left = `${x}px`;
-    tip.style.top  = `${y}px`;
+    tip.style.top = `${y}px`;
   });
   container.addEventListener("mouseleave", () => { tip.hidden = true; });
 
@@ -1184,6 +1184,7 @@ const contributors = [
   "alialmasi",
   "alitavaliee",
   "ohmydevops",
+  "amirabbas-gh"
 ];
 
 const contributorsContainer = document.getElementById("contributors");
